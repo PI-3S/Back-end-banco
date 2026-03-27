@@ -9,6 +9,7 @@ const cursosRoutes = require('./routes/cursos');
 const regrasRoutes = require('./routes/regras');
 const submisoesRoutes = require('./routes/submissoes');
 const certificadosRoutes = require('./routes/certificados');
+const coordenadoresCursosRoutes = require('./routes/coordenadores_cursos');
 
 
 const app = express();
@@ -27,6 +28,7 @@ app.use('/api/cursos', cursosRoutes);
 app.use('/api/regras', regrasRoutes);
 app.use('/api/submissoes', submisoesRoutes);
 app.use('/api/certificados', certificadosRoutes);
+app.use('/api/coordenadores-cursos', coordenadoresCursosRoutes);
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
