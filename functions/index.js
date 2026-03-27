@@ -6,6 +6,7 @@ const admin = require('./config/firebase');
 const usuariosRoutes = require('./routes/usuarios');
 const authRoutes = require('./routes/auth');
 const cursosRoutes = require('./routes/cursos');
+const regrasRoutes = require('./routes/regras');
 
 const app = express();
 const PORT = 3000;
@@ -20,6 +21,7 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/cursos', cursosRoutes);
+app.use('/api/regras', regrasRoutes);
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
