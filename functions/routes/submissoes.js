@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
+const { enviarEmailCoordenador, enviarEmailAluno } = require('../services/email');
 
 const db = admin.firestore();
 
@@ -13,6 +14,15 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
     if (!regra_id || !tipo || !carga_horaria_solicitada) {
       return res.status(400).json({ error: 'regra_id, tipo e carga_horaria_solicitada são obrigatórios' });
     }
+
+    // Busca a regra para pegar o curso_id
+    const regraDoc = await db.collection('regras_atividade').doc(regra_id).get();
+    const regra = regraDoc.data();
+
+    // Busca coordenador do curso
+    const coordSnap = await db.collection('coordenadores_cursos')
+      .where('curso_id', '==', regra.curso_id)
+      .get();
 
     const submissaoRef = await db.collection('submissoes').add({
       aluno_id: req.usuario.uid,
@@ -28,6 +38,16 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
       descricao: descricao || null,
       carga_horaria_solicitada,
     });
+
+    // Envia e-mail para coordenadores do curso
+    if (!coordSnap.empty) {
+      for (const coordDoc of coordSnap.docs) {
+        const coordData = coordDoc.data();
+        const coordUsuario = await db.collection('usuarios').doc(coordData.usuario_id).get();
+        const coordEmail = coordUsuario.data().email;
+        await enviarEmailCoordenador(coordEmail, req.usuario.nome);
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -78,6 +98,14 @@ router.patch('/:id', verificarToken, verificarPerfil('coordenador', 'super_admin
       coordenador_id: req.usuario.uid,
       data_validacao: new Date().toISOString(),
     });
+
+    // Busca dados do aluno
+    const submissaoDoc = await db.collection('submissoes').doc(id).get();
+    const alunoDoc = await db.collection('usuarios').doc(submissaoDoc.data().aluno_id).get();
+    const aluno = alunoDoc.data();
+
+    // Envia e-mail para o aluno
+    await enviarEmailAluno(aluno.email, aluno.nome, status);
 
     res.status(200).json({
       success: true,
