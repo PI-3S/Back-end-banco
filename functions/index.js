@@ -1,15 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
-const admin = require('./config/firebase');
-
-const usuariosRoutes = require('./routes/usuarios');
-const authRoutes = require('./routes/auth');
-const cursosRoutes = require('./routes/cursos');
-const regrasRoutes = require('./routes/regras');
-const submisoesRoutes = require('./routes/submissoes');
-const certificadosRoutes = require('./routes/certificados');
-
+const { db, auth } = require('./services/firebase');
 
 const app = express();
 const PORT = 3000;
@@ -21,12 +12,30 @@ app.get('/', (req, res) => {
   res.json({ message: 'API funcionando!' });
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/usuarios', usuariosRoutes);
-app.use('/api/cursos', cursosRoutes);
-app.use('/api/regras', regrasRoutes);
-app.use('/api/submissoes', submisoesRoutes);
-app.use('/api/certificados', certificadosRoutes);
+app.post('/api/users', async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    
+    const userRecord = await auth.createUser({
+      email,
+      password,
+      displayName: name
+    });
+
+    await db.collection('users').doc(userRecord.uid).set({
+      name,
+      email,
+      createdAt: new Date().toISOString()
+    });
+
+    res.status(201).json({ 
+      success: true, 
+      uid: userRecord.uid 
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);

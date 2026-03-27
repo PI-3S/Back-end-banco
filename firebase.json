@@ -1,6 +1,7 @@
 {
   "functions": [
     {
+      "source": "functions",
       "codebase": "default",
       "disallowLegacyRuntimeConfig": true,
       "ignore": [
@@ -10,8 +11,7 @@
         "firebase-debug.*.log",
         "*.local"
       ],
-      "predeploy": [],
-      "source": "functions"
+      "predeploy": []
     }
   ]
 }
