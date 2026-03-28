@@ -9,7 +9,7 @@ if (process.env.NODE_ENV !== 'production') {
   }
 }
 
-const admin = require('./config/firebase');
+const admin = require('./services/firebase');
 
 const usuariosRoutes = require('./routes/usuarios');
 const authRoutes = require('./routes/auth');
