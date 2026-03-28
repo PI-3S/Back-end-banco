@@ -3,6 +3,7 @@ const router = express.Router();
 const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 const multer = require('multer');
+const { extrairTexto } = require('../services/ocr');
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
@@ -32,12 +33,23 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
 
     const url = `https://storage.googleapis.com/${bucket.name}/${nomeArquivo}`;
 
+    // OCR opcional - só para imagens
+    let texto_extraido = null;
+    let processado_ocr = false;
+
+    const mimeTypesSuportados = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+
+if (mimeTypesSuportados.includes(req.file.mimetype)) {
+  texto_extraido = await extrairTexto(req.file.buffer, req.file.mimetype, req.file.originalname);
+  processado_ocr = true;
+}
+
     const docRef = await db.collection('certificados').add({
       submissao_id,
       nome_arquivo: req.file.originalname,
       url_arquivo: url,
-      processado_ocr: false,
-      texto_extraido: null,
+      processado_ocr,
+      texto_extraido,
       created_at: new Date().toISOString(),
     });
 
@@ -45,6 +57,7 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
       success: true,
       id: docRef.id,
       url_arquivo: url,
+      texto_extraido,
       mensagem: 'Certificado enviado com sucesso!',
     });
 
