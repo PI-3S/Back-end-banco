@@ -1,6 +1,14 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+// Só carrega o dotenv se NÃO estiver em produção (Vercel)
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    require('dotenv').config();
+  } catch (e) {
+    console.log("Dotenv não encontrado, pulando...");
+  }
+}
+
 const admin = require('./config/firebase');
 
 const usuariosRoutes = require('./routes/usuarios');
