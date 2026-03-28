@@ -1,4 +1,6 @@
-const { db } = require('../config/firebase');
+const admin = require('../config/firebase');
+
+const db = admin.firestore();
 
 const registrarLog = async (usuario_id, acao, detalhes = {}) => {
   try {

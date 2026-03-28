@@ -1,16 +1,15 @@
 const express = require('express');
 const router = express.Router();
-// Correção: Extraindo db e storage (que contém o bucket) já inicializados
-const { db, storage } = require('../config/firebase'); 
+const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 const multer = require('multer');
 const { extrairTexto } = require('../services/ocr');
 
-// REMOVIDO: const db = admin.firestore();
-// Ajuste para usar a instância de storage vinda do config
-const bucket = storage.bucket(); 
+const db = admin.firestore();
+const bucket = admin.storage().bucket();
 const upload = multer({ storage: multer.memoryStorage() });
 
+// POST /api/certificados
 router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquivo'), async (req, res) => {
   try {
     const { submissao_id } = req.body;
@@ -23,7 +22,6 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
       return res.status(400).json({ error: 'submissao_id é obrigatório' });
     }
 
-    // Verifica se submissão existe e pertence ao aluno
     const submissaoDoc = await db.collection('submissoes').doc(submissao_id).get();
     if (!submissaoDoc.exists) {
       return res.status(400).json({ error: 'Submissão não encontrada' });
@@ -33,7 +31,6 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
       return res.status(403).json({ error: 'Você não tem permissão para enviar certificado nessa submissão' });
     }
 
-    // Verifica se já tem certificado nessa submissão
     const certExistente = await db.collection('certificados')
       .where('submissao_id', '==', submissao_id)
       .get();
@@ -85,7 +82,7 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
   }
 });
 
-// GET /api/certificados?submissao_id=xxx
+// GET /api/certificados
 router.get('/', verificarToken, async (req, res) => {
   try {
     const { submissao_id } = req.query;

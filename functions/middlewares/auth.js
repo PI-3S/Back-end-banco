@@ -1,29 +1,40 @@
-const { auth, db } = require('../config/firebase');
+const admin = require('../config/firebase');
+
+const db = admin.firestore();
 
 const verificarToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Token não fornecido' });
-  }
-  const token = authHeader.split('Bearer ')[1];
   try {
-    const decodedToken = await auth.verifyIdToken(token);
-    const usuarioDoc = await db.collection('usuarios').doc(decodedToken.uid).get();
-    if (!usuarioDoc.exists) {
-      return res.status(404).json({ error: 'Usuário não encontrado' });
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token não fornecido' });
     }
-    req.usuario = { uid: decodedToken.uid, ...usuarioDoc.data() };
+
+    const token = authHeader.split('Bearer ')[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+
+    const doc = await db.collection('usuarios').doc(decoded.uid).get();
+
+    if (!doc.exists) {
+      return res.status(401).json({ error: 'Usuário não encontrado' });
+    }
+
+    req.usuario = { uid: decoded.uid, ...doc.data() };
     next();
+
   } catch (error) {
-    res.status(401).json({ error: 'Token inválido' });
+    res.status(401).json({ error: 'Token inválido ou expirado' });
   }
 };
 
 const verificarPerfil = (...perfisPermitidos) => {
   return (req, res, next) => {
-    if (!req.usuario || !perfisPermitidos.includes(req.usuario.perfil)) {
+    const perfil = req.usuario?.perfil;
+
+    if (!perfisPermitidos.includes(perfil)) {
       return res.status(403).json({ error: 'Acesso negado' });
     }
+
     next();
   };
 };

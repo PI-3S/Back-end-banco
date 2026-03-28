@@ -1,12 +1,11 @@
 const express = require('express');
 const router = express.Router();
-// Correção: Usando a instância db pronta
-const { db } = require('../config/firebase');
+const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 
+const db = admin.firestore();
 
-
-// POST /api/regras - Só Super Admin cria
+// POST /api/regras
 router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res) => {
   try {
     const { area, limite_horas, exige_comprovante, curso_id } = req.body;
@@ -15,13 +14,11 @@ router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res
       return res.status(400).json({ error: 'area, limite_horas e curso_id são obrigatórios' });
     }
 
-    // Verifica se curso existe
     const cursoDoc = await db.collection('cursos').doc(curso_id).get();
     if (!cursoDoc.exists) {
       return res.status(400).json({ error: 'Curso não encontrado' });
     }
 
-    // Verifica regra duplicada
     const regraDuplicada = await db.collection('regras_atividade')
       .where('curso_id', '==', curso_id)
       .where('area', '==', area)
@@ -50,7 +47,7 @@ router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res
   }
 });
 
-// GET /api/regras?curso_id=xxx - Lista regras de um curso
+// GET /api/regras
 router.get('/', verificarToken, async (req, res) => {
   try {
     const { curso_id } = req.query;

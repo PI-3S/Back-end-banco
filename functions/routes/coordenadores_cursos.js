@@ -1,12 +1,11 @@
 const express = require('express');
 const router = express.Router();
-// Correção técnica: Importando a instância 'db' pronta do seu config
-const { db } = require('../config/firebase'); 
+const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 
-// REMOVIDO: const db = admin.firestore(); (O db já vem pronto do require acima)
+const db = admin.firestore();
 
-// POST /api/coordenadores-cursos - Super Admin vincula coordenador ao curso
+// POST /api/coordenadores-cursos
 router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res) => {
   try {
     const { usuario_id, curso_id } = req.body;
@@ -15,19 +14,16 @@ router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res
       return res.status(400).json({ error: 'usuario_id e curso_id são obrigatórios' });
     }
 
-    // Verifica se coordenador existe e tem perfil correto
     const usuarioDoc = await db.collection('usuarios').doc(usuario_id).get();
     if (!usuarioDoc.exists || usuarioDoc.data().perfil !== 'coordenador') {
       return res.status(400).json({ error: 'Usuário não é um coordenador válido' });
     }
 
-    // Verifica se curso existe
     const cursoDoc = await db.collection('cursos').doc(curso_id).get();
     if (!cursoDoc.exists) {
       return res.status(400).json({ error: 'Curso não encontrado' });
     }
 
-    // Verifica se vínculo já existe
     const vinculoExiste = await db.collection('coordenadores_cursos')
       .where('usuario_id', '==', usuario_id)
       .where('curso_id', '==', curso_id)
@@ -53,7 +49,7 @@ router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res
   }
 });
 
-// GET /api/coordenadores-cursos?curso_id=xxx
+// GET /api/coordenadores-cursos
 router.get('/', verificarToken, verificarPerfil('super_admin'), async (req, res) => {
   try {
     const { curso_id } = req.query;

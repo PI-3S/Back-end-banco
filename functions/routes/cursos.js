@@ -1,13 +1,12 @@
 const express = require('express');
 const router = express.Router();
-// Correção técnica: Importando a instância 'db' pronta do seu config
-const { db } = require('../config/firebase'); 
+const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 const { registrarLog } = require('../services/logs');
 
-// REMOVIDO: const db = admin.firestore(); (O db já vem pronto do require acima)
+const db = admin.firestore();
 
-// POST /api/cursos - Só Super Admin cria
+// POST /api/cursos
 router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res) => {
   try {
     const { nome, carga_horaria_minima } = req.body;
@@ -32,7 +31,7 @@ router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res
   }
 });
 
-// GET /api/cursos - Todos podem ver
+// GET /api/cursos
 router.get('/', verificarToken, async (req, res) => {
   try {
     const snapshot = await db.collection('cursos').get();
