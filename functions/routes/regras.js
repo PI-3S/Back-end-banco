@@ -4,7 +4,7 @@ const router = express.Router();
 const { db } = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 
-// REMOVIDO: const db = admin.firestore();
+
 
 // POST /api/regras - Só Super Admin cria
 router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res) => {

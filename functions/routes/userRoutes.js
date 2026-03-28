@@ -1,12 +1,35 @@
-const express = require('express');
-const router = express.Router();
-const userController = require('../controllers/userController');
+// POST /api/usuarios - Cria um novo usuário (aluno)
+router.post('/', verificarToken, async (req, res) => {
+  try {
+    const { email, password, nome, curso_id, matricula } = req.body;
 
-// Rotas de usuários
-router.post('/', userController.createUser);
-router.get('/', userController.getUsers);
-router.get('/:id', userController.getUserById);
-router.put('/:id', userController.updateUser);
-router.delete('/:id', userController.deleteUser);
+    // 1. Cria no Firebase Authentication
+    const userRecord = await auth.createUser({
+      email,
+      password,
+      displayName: nome,
+    });
 
-module.exports = router;
+    // 2. Salva os dados complementares no Firestore
+    await db.collection('usuarios').doc(userRecord.uid).set({
+      nome,
+      email,
+      curso_id: curso_id || null,
+      matricula: matricula || null,
+      perfil: 'aluno', // Define como aluno por padrão
+      status: 'ativo',
+      createdAt: new Date().toISOString()
+    });
+
+    // 3. (Opcional) Registra o log
+    await registrarLog(req.usuario.uid, 'usuario_criado', { novo_usuario_id: userRecord.uid });
+
+    res.status(201).json({
+      message: 'Usuário criado com sucesso!',
+      uid: userRecord.uid
+    });
+
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
