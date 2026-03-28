@@ -11,6 +11,7 @@ const submisoesRoutes = require('./routes/submissoes');
 const certificadosRoutes = require('./routes/certificados');
 const coordenadoresCursosRoutes = require('./routes/coordenadores_cursos');
 const dashboardRoutes = require('./routes/dashboard');
+const alunosCursosRoutes = require('./routes/alunos_cursos');
 
 
 const app = express();
@@ -23,7 +24,7 @@ app.get('/', (req, res) => {
   res.json({ message: 'API funcionando!' });
 });
 
-
+app.use('/api/alunos-cursos', alunosCursosRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/usuarios', usuariosRoutes);
