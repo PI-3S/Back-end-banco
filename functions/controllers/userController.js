@@ -1,4 +1,4 @@
-const { db, auth } = require('../services/firebase');
+const { db, auth } = require('../config/firebase');
 
 const userController = {
   // Criar usuário
