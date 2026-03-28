@@ -79,18 +79,43 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
 // GET /api/submissoes - Lista submissões
 router.get('/', verificarToken, async (req, res) => {
   try {
-    let query = db.collection('submissoes');
+    let submissoes = [];
 
     if (req.usuario.perfil === 'aluno') {
-      query = query.where('aluno_id', '==', req.usuario.uid);
+      // Aluno vê só suas submissões
+      const snapshot = await db.collection('submissoes')
+        .where('aluno_id', '==', req.usuario.uid)
+        .get();
+      submissoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    } else if (req.usuario.perfil === 'coordenador') {
+      // Coordenador vê só submissões dos seus cursos
+      const coordCursosSnap = await db.collection('coordenadores_cursos')
+        .where('usuario_id', '==', req.usuario.uid)
+        .get();
+
+      const cursoIds = coordCursosSnap.docs.map(doc => doc.data().curso_id);
+
+      if (cursoIds.length === 0) {
+        return res.status(200).json({ success: true, submissoes: [] });
+      }
+
+      const regrasSnap = await db.collection('regras_atividade')
+        .where('curso_id', 'in', cursoIds)
+        .get();
+
+      const regraIds = regrasSnap.docs.map(doc => doc.id);
+
+      const snapshot = await db.collection('submissoes').get();
+      submissoes = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(s => regraIds.includes(s.regra_id));
+
+    } else {
+      // Super Admin vê tudo
+      const snapshot = await db.collection('submissoes').get();
+      submissoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     }
-
-    const snapshot = await query.get();
-
-    const submissoes = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
 
     res.status(200).json({ success: true, submissoes });
 
