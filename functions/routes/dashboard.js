@@ -101,7 +101,6 @@ router.get('/coordenador', verificarToken, verificarPerfil('coordenador', 'super
   }
 });
 
-// GET /api/dashboard/aluno - Métricas para aluno
 router.get('/aluno', verificarToken, verificarPerfil('aluno'), async (req, res) => {
   try {
     const submissoesSnap = await db.collection('submissoes')
@@ -114,7 +113,6 @@ router.get('/aluno', verificarToken, verificarPerfil('aluno'), async (req, res) 
     const aprovadas = submissoes.filter(s => s.status === 'aprovado').length;
     const reprovadas = submissoes.filter(s => s.status === 'reprovado').length;
 
-    // Horas acumuladas por área
     const horasPorArea = {};
     for (const submissao of submissoes) {
       if (submissao.status === 'aprovado') {
@@ -137,6 +135,21 @@ router.get('/aluno', verificarToken, verificarPerfil('aluno'), async (req, res) 
 
     const totalHoras = Object.values(horasPorArea).reduce((acc, a) => acc + a.horas, 0);
 
+    // Busca carga horária mínima do curso do aluno
+    let carga_horaria_minima = 0;
+    let progresso_percentual = 0;
+
+    const usuarioDoc = await db.collection('usuarios').doc(req.usuario.uid).get();
+    const usuario = usuarioDoc.data();
+
+    if (usuario.curso_id) {
+      const cursoDoc = await db.collection('cursos').doc(usuario.curso_id).get();
+      if (cursoDoc.exists) {
+        carga_horaria_minima = cursoDoc.data().carga_horaria_minima;
+        progresso_percentual = Math.min(Math.round((totalHoras / carga_horaria_minima) * 100), 100);
+      }
+    }
+
     res.status(200).json({
       success: true,
       metricas: {
@@ -145,6 +158,8 @@ router.get('/aluno', verificarToken, verificarPerfil('aluno'), async (req, res) 
         aprovadas,
         reprovadas,
         total_horas_aprovadas: totalHoras,
+        carga_horaria_minima,
+        progresso_percentual,
         horas_por_area: Object.values(horasPorArea),
       },
     });
