@@ -13,9 +13,9 @@ const userController = {
         displayName: name
       });
 
-      // Salvar dados adicionais no Firestore
-      await db.collection('users').doc(userRecord.uid).set({
-        name,
+      // Salvar dados adicionais no Firestore (Ajustado para 'usuarios')
+      await db.collection('usuarios').doc(userRecord.uid).set({
+        nome: name, // Usando 'nome' para seguir o padrão das outras rotas
         email,
         createdAt: new Date().toISOString()
       });
@@ -32,7 +32,7 @@ const userController = {
   // Listar usuários
   async getUsers(req, res) {
     try {
-      const usersSnapshot = await db.collection('users').get();
+      const usersSnapshot = await db.collection('usuarios').get();
       const users = [];
       
       usersSnapshot.forEach(doc => {
@@ -49,7 +49,7 @@ const userController = {
   async getUserById(req, res) {
     try {
       const { id } = req.params;
-      const userDoc = await db.collection('users').doc(id).get();
+      const userDoc = await db.collection('usuarios').doc(id).get();
       
       if (!userDoc.exists) {
         return res.status(404).json({ error: 'Usuário não encontrado' });
@@ -67,8 +67,8 @@ const userController = {
       const { id } = req.params;
       const { name } = req.body;
 
-      await db.collection('users').doc(id).update({
-        name,
+      await db.collection('usuarios').doc(id).update({
+        nome: name,
         updatedAt: new Date().toISOString()
       });
 
@@ -87,7 +87,7 @@ const userController = {
       await auth.deleteUser(id);
       
       // Deletar do Firestore
-      await db.collection('users').doc(id).delete();
+      await db.collection('usuarios').doc(id).delete();
 
       res.json({ message: 'Usuário deletado com sucesso' });
     } catch (error) {

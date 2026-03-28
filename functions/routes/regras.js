@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const admin = require('../config/firebase');
+// Correção: Usando a instância db pronta
+const { db } = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 
-const db = admin.firestore();
+// REMOVIDO: const db = admin.firestore();
 
 // POST /api/regras - Só Super Admin cria
 router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res) => {

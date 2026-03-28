@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const admin = require('../config/firebase');
+// Correção técnica: Importando a instância 'db' pronta do seu config
+const { db } = require('../config/firebase'); 
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 
-const db = admin.firestore();
+// REMOVIDO: const db = admin.firestore(); (O db já vem pronto do require acima)
 
 // POST /api/coordenadores-cursos - Super Admin vincula coordenador ao curso
 router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res) => {

@@ -1,12 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const admin = require('../config/firebase');
+// Correção: Extraindo db e storage (que contém o bucket) já inicializados
+const { db, storage } = require('../config/firebase'); 
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 const multer = require('multer');
 const { extrairTexto } = require('../services/ocr');
 
-const db = admin.firestore();
-const bucket = admin.storage().bucket();
+// REMOVIDO: const db = admin.firestore();
+// Ajuste para usar a instância de storage vinda do config
+const bucket = storage.bucket(); 
 const upload = multer({ storage: multer.memoryStorage() });
 
 router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquivo'), async (req, res) => {

@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const admin = require('../config/firebase');
+// Correção técnica: Importando a instância 'db' pronta para evitar erro de tipo no Vercel
+const { db } = require('../config/firebase'); 
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 const { registrarLog } = require('../services/logs');
 
-const db = admin.firestore();
+// REMOVIDO: const db = admin.firestore(); (O db já vem pronto do require acima)
 
 // POST /api/alunos-cursos - Coordenador vincula aluno ao curso
 router.post('/', verificarToken, verificarPerfil('coordenador', 'super_admin'), async (req, res) => {

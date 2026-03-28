@@ -1,11 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const admin = require('../config/firebase');
+const { db, auth } = require('../config/firebase');
 const { registrarLog } = require('../services/logs');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
-
-const db = admin.firestore();
-const auth = admin.auth();
 
 // PATCH /api/usuarios/:id - Atualiza usuário
 router.patch('/:id', verificarToken, verificarPerfil('super_admin', 'coordenador'), async (req, res) => {
