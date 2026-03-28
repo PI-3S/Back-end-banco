@@ -14,6 +14,22 @@ router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res
       return res.status(400).json({ error: 'area, limite_horas e curso_id são obrigatórios' });
     }
 
+    // Verifica se curso existe
+    const cursoDoc = await db.collection('cursos').doc(curso_id).get();
+    if (!cursoDoc.exists) {
+      return res.status(400).json({ error: 'Curso não encontrado' });
+    }
+
+    // Verifica regra duplicada
+    const regraDuplicada = await db.collection('regras_atividade')
+      .where('curso_id', '==', curso_id)
+      .where('area', '==', area)
+      .get();
+
+    if (!regraDuplicada.empty) {
+      return res.status(400).json({ error: 'Já existe uma regra para essa área nesse curso' });
+    }
+
     const docRef = await db.collection('regras_atividade').add({
       area,
       limite_horas,

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
+const { registrarLog } = require('../services/logs');
 
 const db = admin.firestore();
 
@@ -16,6 +17,8 @@ router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res
       criado_por_admin_id: req.usuario.uid,
       created_at: new Date().toISOString(),
     });
+
+    await registrarLog(req.usuario.uid, 'curso_criado', { curso_id: docRef.id, nome });
 
     res.status(201).json({
       success: true,

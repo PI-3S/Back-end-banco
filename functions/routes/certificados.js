@@ -3,12 +3,12 @@ const router = express.Router();
 const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 const multer = require('multer');
+const { extrairTexto } = require('../services/ocr');
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// POST /api/certificados - Aluno faz upload
 router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquivo'), async (req, res) => {
   try {
     const { submissao_id } = req.body;
@@ -19,6 +19,25 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
 
     if (!submissao_id) {
       return res.status(400).json({ error: 'submissao_id é obrigatório' });
+    }
+
+    // Verifica se submissão existe e pertence ao aluno
+    const submissaoDoc = await db.collection('submissoes').doc(submissao_id).get();
+    if (!submissaoDoc.exists) {
+      return res.status(400).json({ error: 'Submissão não encontrada' });
+    }
+
+    if (submissaoDoc.data().aluno_id !== req.usuario.uid) {
+      return res.status(403).json({ error: 'Você não tem permissão para enviar certificado nessa submissão' });
+    }
+
+    // Verifica se já tem certificado nessa submissão
+    const certExistente = await db.collection('certificados')
+      .where('submissao_id', '==', submissao_id)
+      .get();
+
+    if (!certExistente.empty) {
+      return res.status(400).json({ error: 'Essa submissão já possui um certificado enviado' });
     }
 
     const nomeArquivo = `certificados/${Date.now()}_${req.file.originalname}`;
@@ -32,12 +51,22 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
 
     const url = `https://storage.googleapis.com/${bucket.name}/${nomeArquivo}`;
 
+    let texto_extraido = null;
+    let processado_ocr = false;
+
+    const mimeTypesSuportados = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+
+    if (mimeTypesSuportados.includes(req.file.mimetype)) {
+      texto_extraido = await extrairTexto(req.file.buffer, req.file.mimetype, req.file.originalname);
+      processado_ocr = true;
+    }
+
     const docRef = await db.collection('certificados').add({
       submissao_id,
       nome_arquivo: req.file.originalname,
       url_arquivo: url,
-      processado_ocr: false,
-      texto_extraido: null,
+      processado_ocr,
+      texto_extraido,
       created_at: new Date().toISOString(),
     });
 
@@ -45,6 +74,7 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
       success: true,
       id: docRef.id,
       url_arquivo: url,
+      texto_extraido,
       mensagem: 'Certificado enviado com sucesso!',
     });
 

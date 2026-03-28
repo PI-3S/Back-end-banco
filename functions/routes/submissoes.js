@@ -3,6 +3,7 @@ const router = express.Router();
 const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 const { enviarEmailCoordenador, enviarEmailAluno } = require('../services/email');
+const { registrarLog } = require('../services/logs');
 
 const db = admin.firestore();
 
@@ -15,11 +16,25 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
       return res.status(400).json({ error: 'regra_id, tipo e carga_horaria_solicitada são obrigatórios' });
     }
 
-    // Busca a regra para pegar o curso_id
+    // Verifica se regra existe
     const regraDoc = await db.collection('regras_atividade').doc(regra_id).get();
+    if (!regraDoc.exists) {
+      return res.status(400).json({ error: 'Regra não encontrada' });
+    }
+
+    // Verifica submissão duplicada
+    const submissaoDuplicada = await db.collection('submissoes')
+      .where('aluno_id', '==', req.usuario.uid)
+      .where('regra_id', '==', regra_id)
+      .where('status', 'in', ['pendente', 'aprovado'])
+      .get();
+
+    if (!submissaoDuplicada.empty) {
+      return res.status(400).json({ error: 'Você já possui uma submissão pendente ou aprovada para essa regra' });
+    }
+
     const regra = regraDoc.data();
 
-    // Busca coordenador do curso
     const coordSnap = await db.collection('coordenadores_cursos')
       .where('curso_id', '==', regra.curso_id)
       .get();
@@ -39,7 +54,6 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
       carga_horaria_solicitada,
     });
 
-    // Envia e-mail para coordenadores do curso
     if (!coordSnap.empty) {
       for (const coordDoc of coordSnap.docs) {
         const coordData = coordDoc.data();
@@ -48,6 +62,8 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
         await enviarEmailCoordenador(coordEmail, req.usuario.nome);
       }
     }
+
+    await registrarLog(req.usuario.uid, 'submissao_criada', { submissao_id: submissaoRef.id });
 
     res.status(201).json({
       success: true,
@@ -99,13 +115,12 @@ router.patch('/:id', verificarToken, verificarPerfil('coordenador', 'super_admin
       data_validacao: new Date().toISOString(),
     });
 
-    // Busca dados do aluno
     const submissaoDoc = await db.collection('submissoes').doc(id).get();
     const alunoDoc = await db.collection('usuarios').doc(submissaoDoc.data().aluno_id).get();
     const aluno = alunoDoc.data();
 
-    // Envia e-mail para o aluno
     await enviarEmailAluno(aluno.email, aluno.nome, status);
+    await registrarLog(req.usuario.uid, `submissao_${status}`, { submissao_id: id });
 
     res.status(200).json({
       success: true,
