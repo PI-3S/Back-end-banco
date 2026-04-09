@@ -38,6 +38,7 @@ router.post('/login', async (req, res) => {
     res.status(200).json({
       success: true,
       token: data.idToken,
+      refreshToken: data.refreshToken,
       usuario: {
         uid,
         nome: usuario.nome,
