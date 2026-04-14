@@ -149,4 +149,113 @@ router.get('/', verificarToken, verificarPerfil('super_admin', 'coordenador'), a
   }
 });
 
+// 🆕 DELETE /api/usuarios/:id - Excluir usuário
+router.delete('/:id', verificarToken, verificarPerfil('super_admin', 'coordenador'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuarioLogado = req.usuario;
+
+    // Verifica se o usuário existe no Firestore
+    const usuarioRef = db.collection('usuarios').doc(id);
+    const usuarioDoc = await usuarioRef.get();
+
+    if (!usuarioDoc.exists) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Usuário não encontrado' 
+      });
+    }
+
+    const usuarioData = usuarioDoc.data();
+
+    // Coordenador só pode excluir alunos do seu curso
+    if (usuarioLogado.perfil === 'coordenador') {
+      if (usuarioData.perfil !== 'aluno') {
+        return res.status(403).json({
+          success: false,
+          error: 'Coordenadores só podem excluir alunos'
+        });
+      }
+      
+      // Verifica se o aluno é do curso do coordenador
+      const coordCursos = await db.collection('coordenadores_cursos')
+        .where('usuario_id', '==', usuarioLogado.uid)
+        .get();
+      
+      const cursosDoCoord = coordCursos.docs.map(d => d.data().curso_id);
+      
+      if (!cursosDoCoord.includes(usuarioData.curso_id)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Você só pode excluir alunos do seu curso'
+        });
+      }
+    }
+
+    // Não permite excluir o último super_admin
+    if (usuarioData.perfil === 'super_admin') {
+      const superAdmins = await db.collection('usuarios')
+        .where('perfil', '==', 'super_admin')
+        .get();
+      
+      if (superAdmins.size <= 1) {
+        return res.status(400).json({
+          success: false,
+          error: 'Não é possível excluir o último super_admin do sistema'
+        });
+      }
+    }
+
+    // Se for aluno, remove vínculos de alunos_cursos primeiro
+    if (usuarioData.perfil === 'aluno') {
+      const vinculosAluno = await db.collection('alunos_cursos')
+        .where('usuario_id', '==', id)
+        .get();
+      
+      const batch = db.batch();
+      vinculosAluno.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+    }
+
+    // Se for coordenador, remove vínculos de coordenadores_cursos
+    if (usuarioData.perfil === 'coordenador') {
+      const vinculosCoord = await db.collection('coordenadores_cursos')
+        .where('usuario_id', '==', id)
+        .get();
+      
+      const batch = db.batch();
+      vinculosCoord.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+    }
+
+    // Exclui o usuário do Firestore
+    await usuarioRef.delete();
+
+    // Exclui o usuário do Firebase Auth
+    try {
+      await auth.deleteUser(id);
+    } catch (authError) {
+      console.warn('Erro ao excluir usuário do Auth:', authError.message);
+    }
+
+    await registrarLog(usuarioLogado.uid, 'usuario_excluido', {
+      usuario_id: id,
+      nome: usuarioData.nome,
+      perfil: usuarioData.perfil
+    });
+
+    res.status(200).json({
+      success: true,
+      mensagem: 'Usuário excluído com sucesso!',
+    });
+
+  } catch (error) {
+    console.error('Erro ao excluir usuário:', error);
+    res.status(400).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 module.exports = router;
