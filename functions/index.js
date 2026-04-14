@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 const admin = require('./config/firebase');
 
+const configuracoesRoutes = require('./routes/configuracoes');
 const authRoutes = require('./routes/auth');
 const usuariosRoutes = require('./routes/usuarios');
 const cursosRoutes = require('./routes/cursos');
@@ -32,6 +33,7 @@ app.use('/api/certificados', certificadosRoutes);
 app.use('/api/coordenadores-cursos', coordenadoresCursosRoutes);
 app.use('/api/alunos-cursos', alunosCursosRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/configuracoes', configuracoesRoutes);
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);

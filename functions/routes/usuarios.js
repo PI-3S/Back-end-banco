@@ -3,6 +3,7 @@ const router = express.Router();
 const admin = require('../config/firebase');
 const { verificarToken, verificarPerfil } = require('../middlewares/auth');
 const { registrarLog } = require('../services/logs');
+const { enviarCredenciaisAcesso } = require('../services/email');
 
 const db = admin.firestore();
 const auth = admin.auth();
@@ -34,13 +35,24 @@ router.post('/', verificarToken, verificarPerfil('super_admin', 'coordenador'), 
 
     await registrarLog(req.usuario.uid, 'usuario_criado', { usuario_id: userRecord.uid, perfil });
 
+    // 🆕 Enviar email com as credenciais
+    try {
+      await enviarCredenciaisAcesso(email, nome, senha, perfil);
+      console.log(`✅ Email de credenciais enviado para ${email}`);
+    } catch (emailError) {
+      console.error('❌ Erro ao enviar email:', emailError);
+      // Não falha a criação do usuário se o email falhar
+    }
+
     res.status(201).json({
       success: true,
       uid: userRecord.uid,
-      mensagem: 'Usuário criado com sucesso!',
+      mensagem: 'Usuário criado com sucesso! As credenciais foram enviadas por email.',
+      emailEnviado: true
     });
 
   } catch (error) {
+    console.error('Erro ao criar usuário:', error);
     res.status(400).json({ error: error.message });
   }
 });
