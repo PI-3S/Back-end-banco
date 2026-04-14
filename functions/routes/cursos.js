@@ -6,12 +6,11 @@ const { registrarLog } = require('../services/logs');
 
 const db = admin.firestore();
 
-// POST /api/cursos - Criar novo curso
+// POST /api/cursos - Criar
 router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res) => {
   try {
     const { nome, carga_horaria_minima } = req.body;
 
-    // Validação básica
     if (!nome || !carga_horaria_minima) {
       return res.status(400).json({ 
         success: false, 
@@ -46,7 +45,7 @@ router.post('/', verificarToken, verificarPerfil('super_admin'), async (req, res
   }
 });
 
-// GET /api/cursos - Listar todos os cursos
+// GET /api/cursos - Listar
 router.get('/', verificarToken, async (req, res) => {
   try {
     const snapshot = await db.collection('cursos').get();
@@ -67,21 +66,19 @@ router.get('/', verificarToken, async (req, res) => {
   }
 });
 
-// 🆕 PATCH /api/cursos/:id - Atualizar curso existente
+// 🆕 PATCH /api/cursos/:id - Atualizar
 router.patch('/:id', verificarToken, verificarPerfil('super_admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const { nome, carga_horaria_minima } = req.body;
 
-    // Validação
     if (!nome && !carga_horaria_minima) {
       return res.status(400).json({ 
         success: false, 
-        error: 'Pelo menos um campo deve ser fornecido para atualização' 
+        error: 'Pelo menos um campo deve ser fornecido' 
       });
     }
 
-    // Verifica se o curso existe
     const cursoRef = db.collection('cursos').doc(id);
     const cursoDoc = await cursoRef.get();
 
@@ -92,17 +89,14 @@ router.patch('/:id', verificarToken, verificarPerfil('super_admin'), async (req,
       });
     }
 
-    // Prepara os dados para atualização
     const updateData = {};
     if (nome) updateData.nome = nome;
     if (carga_horaria_minima) updateData.carga_horaria_minima = carga_horaria_minima;
     updateData.atualizado_por_admin_id = req.usuario.uid;
     updateData.updated_at = new Date().toISOString();
 
-    // Atualiza o documento
     await cursoRef.update(updateData);
 
-    // Registra o log
     await registrarLog(req.usuario.uid, 'curso_atualizado', {
       curso_id: id,
       ...updateData
@@ -122,18 +116,11 @@ router.patch('/:id', verificarToken, verificarPerfil('super_admin'), async (req,
   }
 });
 
-// 🆕 PUT /api/cursos/:id - Alias para PATCH (compatibilidade)
-router.put('/:id', verificarToken, verificarPerfil('super_admin'), async (req, res) => {
-  // Redireciona para a mesma lógica do PATCH
-  return router.patch('/:id')(req, res);
-});
-
-// 🆕 DELETE /api/cursos/:id - Excluir curso
+// 🆕 DELETE /api/cursos/:id - Excluir
 router.delete('/:id', verificarToken, verificarPerfil('super_admin'), async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Verifica se o curso existe
     const cursoRef = db.collection('cursos').doc(id);
     const cursoDoc = await cursoRef.get();
 
@@ -146,7 +133,7 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin'), async (req
 
     const cursoData = cursoDoc.data();
 
-    // Verifica se há alunos vinculados a este curso
+    // Verifica vínculos
     const alunosSnapshot = await db.collection('alunos_cursos')
       .where('curso_id', '==', id)
       .limit(1)
@@ -155,11 +142,10 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin'), async (req
     if (!alunosSnapshot.empty) {
       return res.status(400).json({
         success: false,
-        error: 'Não é possível excluir este curso pois existem alunos vinculados a ele'
+        error: 'Não é possível excluir: existem alunos vinculados'
       });
     }
 
-    // Verifica se há coordenadores vinculados a este curso
     const coordenadoresSnapshot = await db.collection('coordenadores_cursos')
       .where('curso_id', '==', id)
       .limit(1)
@@ -168,14 +154,12 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin'), async (req
     if (!coordenadoresSnapshot.empty) {
       return res.status(400).json({
         success: false,
-        error: 'Não é possível excluir este curso pois existem coordenadores vinculados a ele'
+        error: 'Não é possível excluir: existem coordenadores vinculados'
       });
     }
 
-    // Exclui o curso
     await cursoRef.delete();
 
-    // Registra o log
     await registrarLog(req.usuario.uid, 'curso_excluido', {
       curso_id: id,
       nome: cursoData.nome
