@@ -7,6 +7,55 @@ const { registrarLog } = require('../services/logs');
 
 const db = admin.firestore();
 
+// Função auxiliar para buscar dados complementares de submissões antigas
+async function enrichSubmissoes(submissoes) {
+  // Identifica submissões que precisam de dados complementares
+  const needsEnrichment = submissoes.filter(s =>
+    s.carga_horaria_solicitada === undefined || s.tipo === undefined
+  );
+
+  if (needsEnrichment.length === 0) {
+    return submissoes; // Todas já têm os dados
+  }
+
+  // Busca atividades complementares de uma vez
+  const submissaoIds = needsEnrichment.map(s => s.id);
+  const atividadesSnap = await db.collection('atividades_complementares')
+    .where('submissao_id', 'in', submissaoIds.slice(0, 10)) // Firestore limita 10 itens em 'in'
+    .get();
+
+  // Se tiver mais de 10, busca em batches
+  let allAtividades = [...atividadesSnap.docs];
+
+  if (submissaoIds.length > 10) {
+    for (let i = 10; i < submissaoIds.length; i += 10) {
+      const batchIds = submissaoIds.slice(i, i + 10);
+      const batchSnap = await db.collection('atividades_complementares')
+        .where('submissao_id', 'in', batchIds)
+        .get();
+      allAtividades = [...allAtividades, ...batchSnap.docs];
+    }
+  }
+
+  // Cria mapa de submissao_id -> dados da atividade
+  const atividadesMap = {};
+  allAtividades.forEach(doc => {
+    const data = doc.data();
+    atividadesMap[data.submissao_id] = data;
+  });
+
+  // Enriquece as submissões
+  return submissoes.map(s => {
+    const atividade = atividadesMap[s.id];
+    return {
+      ...s,
+      carga_horaria_solicitada: s.carga_horaria_solicitada ?? atividade?.carga_horaria_solicitada ?? null,
+      tipo: s.tipo || atividade?.tipo || null,
+      descricao: s.descricao ?? atividade?.descricao ?? null,
+    };
+  });
+}
+
 // POST /api/submissoes
 router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
   try {
@@ -37,14 +86,19 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
       .where('curso_id', '==', regra.curso_id)
       .get();
 
+    // Cria a submissão com todos os dados
     const submissaoRef = await db.collection('submissoes').add({
       aluno_id: req.usuario.uid,
       coordenador_id: null,
       regra_id,
+      tipo,
+      descricao: descricao || null,
+      carga_horaria_solicitada,
       status: 'pendente',
       data_envio: new Date().toISOString(),
     });
 
+    // Mantém também na collection de atividades_complementares para retrocompatibilidade
     await db.collection('atividades_complementares').add({
       submissao_id: submissaoRef.id,
       tipo,
@@ -56,8 +110,10 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
       for (const coordDoc of coordSnap.docs) {
         const coordData = coordDoc.data();
         const coordUsuario = await db.collection('usuarios').doc(coordData.usuario_id).get();
-        const coordEmail = coordUsuario.data().email;
-        await enviarEmailCoordenador(coordEmail, req.usuario.nome);
+        if (coordUsuario.exists && coordUsuario.data().email) {
+          const coordEmail = coordUsuario.data().email;
+          await enviarEmailCoordenador(coordEmail, req.usuario.nome);
+        }
       }
     }
 
@@ -70,6 +126,7 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
     });
 
   } catch (error) {
+    console.error('Erro ao criar submissão:', error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -108,13 +165,44 @@ router.get('/', verificarToken, async (req, res) => {
         .filter(s => regraIds.includes(s.regra_id));
 
     } else {
+      // super_admin busca todas
       const snapshot = await db.collection('submissoes').get();
       submissoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     }
 
+    // Enriquece submissões antigas com dados de atividades_complementares
+    submissoes = await enrichSubmissoes(submissoes);
+
     res.status(200).json({ success: true, submissoes });
 
   } catch (error) {
+    console.error('Erro ao buscar submissões:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// GET /api/submissoes/:id
+router.get('/:id', verificarToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await db.collection('submissoes').doc(id).get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Submissão não encontrada' });
+    }
+
+    let submissao = { id: doc.id, ...doc.data() };
+
+    // Enriquece se necessário
+    if (submissao.carga_horaria_solicitada === undefined || submissao.tipo === undefined) {
+      const enriched = await enrichSubmissoes([submissao]);
+      submissao = enriched[0];
+    }
+
+    res.status(200).json({ success: true, submissao });
+
+  } catch (error) {
+    console.error('Erro ao buscar submissão:', error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -123,25 +211,34 @@ router.get('/', verificarToken, async (req, res) => {
 router.patch('/:id', verificarToken, verificarPerfil('coordenador', 'super_admin'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, observacao } = req.body;
+    const { status, observacao, horas_aprovadas } = req.body;
 
     if (!['aprovado', 'reprovado', 'correcao'].includes(status)) {
       return res.status(400).json({ error: 'Status deve ser aprovado, reprovado ou correcao' });
     }
 
-    await db.collection('submissoes').doc(id).update({
+    const updateData = {
       status,
       coordenador_id: req.usuario.uid,
       data_validacao: new Date().toISOString(),
       observacao: observacao || null,
-    });
+    };
+
+    // Se aprovar e enviar horas_aprovadas, salva também
+    if (status === 'aprovado' && horas_aprovadas) {
+      updateData.horas_aprovadas = horas_aprovadas;
+    }
+
+    await db.collection('submissoes').doc(id).update(updateData);
 
     const submissaoDoc = await db.collection('submissoes').doc(id).get();
     const alunoDoc = await db.collection('usuarios').doc(submissaoDoc.data().aluno_id).get();
-    const aluno = alunoDoc.data();
 
-    if (status !== 'correcao') {
-      await enviarEmailAluno(aluno.email, aluno.nome, status);
+    if (alunoDoc.exists) {
+      const aluno = alunoDoc.data();
+      if (status !== 'correcao' && aluno.email) {
+        await enviarEmailAluno(aluno.email, aluno.nome, status);
+      }
     }
 
     await registrarLog(req.usuario.uid, `submissao_${status}`, { submissao_id: id });
@@ -152,41 +249,53 @@ router.patch('/:id', verificarToken, verificarPerfil('coordenador', 'super_admin
     });
 
   } catch (error) {
+    console.error('Erro ao atualizar submissão:', error);
     res.status(400).json({ error: error.message });
   }
 });
 
-// POST /api/auth/forgot-password
-router.post('/forgot-password', async (req, res) => {
+// DELETE /api/submissoes/:id
+router.delete('/:id', verificarToken, async (req, res) => {
   try {
-    const { email } = req.body;
+    const { id } = req.params;
 
-    if (!email) {
-      return res.status(400).json({ error: 'Email é obrigatório' });
+    const submissaoDoc = await db.collection('submissoes').doc(id).get();
+
+    if (!submissaoDoc.exists) {
+      return res.status(404).json({ error: 'Submissão não encontrada' });
     }
 
-    // Verifica se o usuário existe no Firestore
-    const snapshot = await db.collection('usuarios')
-      .where('email', '==', email)
+    const submissao = submissaoDoc.data();
+
+    // Aluno só pode deletar submissões pendentes ou em correção
+    if (req.usuario.perfil === 'aluno') {
+      if (submissao.aluno_id !== req.usuario.uid) {
+        return res.status(403).json({ error: 'Você não tem permissão para deletar esta submissão' });
+      }
+      if (!['pendente', 'correcao'].includes(submissao.status)) {
+        return res.status(400).json({ error: 'Só é possível deletar submissões pendentes ou em correção' });
+      }
+    }
+
+    // Deleta atividades_complementares relacionadas
+    const atividadesSnap = await db.collection('atividades_complementares')
+      .where('submissao_id', '==', id)
       .get();
 
-    if (snapshot.empty) {
-      return res.status(404).json({ error: 'Email não encontrado' });
-    }
+    const batch = db.batch();
+    atividadesSnap.docs.forEach(doc => batch.delete(doc.ref));
+    batch.delete(submissaoDoc.ref);
+    await batch.commit();
 
-    // Gera link de reset pelo Firebase Auth
-    const link = await admin.auth().generatePasswordResetLink(email);
-
-    // Envia o email usando o serviço de email já existente
-    const { enviarEmailResetSenha } = require('../services/email');
-    await enviarEmailResetSenha(email, link);
+    await registrarLog(req.usuario.uid, 'submissao_deletada', { submissao_id: id });
 
     res.status(200).json({
       success: true,
-      mensagem: 'Email de recuperação enviado com sucesso!'
+      mensagem: 'Submissão deletada com sucesso!',
     });
 
   } catch (error) {
+    console.error('Erro ao deletar submissão:', error);
     res.status(400).json({ error: error.message });
   }
 });
