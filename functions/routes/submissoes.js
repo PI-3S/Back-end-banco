@@ -123,28 +123,67 @@ router.get('/', verificarToken, async (req, res) => {
 router.patch('/:id', verificarToken, verificarPerfil('coordenador', 'super_admin'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, observacao } = req.body;
 
-    if (!['aprovado', 'reprovado'].includes(status)) {
-      return res.status(400).json({ error: 'Status deve ser aprovado ou reprovado' });
+    if (!['aprovado', 'reprovado', 'correcao'].includes(status)) {
+      return res.status(400).json({ error: 'Status deve ser aprovado, reprovado ou correcao' });
     }
 
     await db.collection('submissoes').doc(id).update({
       status,
       coordenador_id: req.usuario.uid,
       data_validacao: new Date().toISOString(),
+      observacao: observacao || null,
     });
 
     const submissaoDoc = await db.collection('submissoes').doc(id).get();
     const alunoDoc = await db.collection('usuarios').doc(submissaoDoc.data().aluno_id).get();
     const aluno = alunoDoc.data();
 
-    await enviarEmailAluno(aluno.email, aluno.nome, status);
+    if (status !== 'correcao') {
+      await enviarEmailAluno(aluno.email, aluno.nome, status);
+    }
+
     await registrarLog(req.usuario.uid, `submissao_${status}`, { submissao_id: id });
 
     res.status(200).json({
       success: true,
       mensagem: `Submissão ${status} com sucesso!`,
+    });
+
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/auth/forgot-password
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email é obrigatório' });
+    }
+
+    // Verifica se o usuário existe no Firestore
+    const snapshot = await db.collection('usuarios')
+      .where('email', '==', email)
+      .get();
+
+    if (snapshot.empty) {
+      return res.status(404).json({ error: 'Email não encontrado' });
+    }
+
+    // Gera link de reset pelo Firebase Auth
+    const link = await admin.auth().generatePasswordResetLink(email);
+
+    // Envia o email usando o serviço de email já existente
+    const { enviarEmailResetSenha } = require('../services/email');
+    await enviarEmailResetSenha(email, link);
+
+    res.status(200).json({
+      success: true,
+      mensagem: 'Email de recuperação enviado com sucesso!'
     });
 
   } catch (error) {

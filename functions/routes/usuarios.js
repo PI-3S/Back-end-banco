@@ -35,13 +35,11 @@ router.post('/', verificarToken, verificarPerfil('super_admin', 'coordenador'), 
 
     await registrarLog(req.usuario.uid, 'usuario_criado', { usuario_id: userRecord.uid, perfil });
 
-    // 🆕 Enviar email com as credenciais
     try {
       await enviarCredenciaisAcesso(email, nome, senha, perfil);
       console.log(`✅ Email de credenciais enviado para ${email}`);
     } catch (emailError) {
       console.error('❌ Erro ao enviar email:', emailError);
-      // Não falha a criação do usuário se o email falhar
     }
 
     res.status(201).json({
@@ -161,13 +159,12 @@ router.get('/', verificarToken, verificarPerfil('super_admin', 'coordenador'), a
   }
 });
 
-// 🆕 DELETE /api/usuarios/:id - Excluir usuário
+// DELETE /api/usuarios/:id
 router.delete('/:id', verificarToken, verificarPerfil('super_admin', 'coordenador'), async (req, res) => {
   try {
     const { id } = req.params;
     const usuarioLogado = req.usuario;
 
-    // Verifica se o usuário existe no Firestore
     const usuarioRef = db.collection('usuarios').doc(id);
     const usuarioDoc = await usuarioRef.get();
 
@@ -180,7 +177,6 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin', 'coordenado
 
     const usuarioData = usuarioDoc.data();
 
-    // Coordenador só pode excluir alunos do seu curso
     if (usuarioLogado.perfil === 'coordenador') {
       if (usuarioData.perfil !== 'aluno') {
         return res.status(403).json({
@@ -189,7 +185,6 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin', 'coordenado
         });
       }
       
-      // Verifica se o aluno é do curso do coordenador
       const coordCursos = await db.collection('coordenadores_cursos')
         .where('usuario_id', '==', usuarioLogado.uid)
         .get();
@@ -204,7 +199,6 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin', 'coordenado
       }
     }
 
-    // Não permite excluir o último super_admin
     if (usuarioData.perfil === 'super_admin') {
       const superAdmins = await db.collection('usuarios')
         .where('perfil', '==', 'super_admin')
@@ -218,7 +212,6 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin', 'coordenado
       }
     }
 
-    // Se for aluno, remove vínculos de alunos_cursos primeiro
     if (usuarioData.perfil === 'aluno') {
       const vinculosAluno = await db.collection('alunos_cursos')
         .where('usuario_id', '==', id)
@@ -229,7 +222,6 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin', 'coordenado
       await batch.commit();
     }
 
-    // Se for coordenador, remove vínculos de coordenadores_cursos
     if (usuarioData.perfil === 'coordenador') {
       const vinculosCoord = await db.collection('coordenadores_cursos')
         .where('usuario_id', '==', id)
@@ -240,10 +232,8 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin', 'coordenado
       await batch.commit();
     }
 
-    // Exclui o usuário do Firestore
     await usuarioRef.delete();
 
-    // Exclui o usuário do Firebase Auth
     try {
       await auth.deleteUser(id);
     } catch (authError) {
@@ -267,6 +257,38 @@ router.delete('/:id', verificarToken, verificarPerfil('super_admin', 'coordenado
       success: false, 
       error: error.message 
     });
+  }
+});
+
+// POST /api/usuarios/:id/reset-senha
+router.post('/:id/reset-senha', verificarToken, verificarPerfil('super_admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { novaSenha } = req.body;
+
+    if (!novaSenha || novaSenha.length < 6) {
+      return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
+    }
+
+    const usuarioDoc = await db.collection('usuarios').doc(id).get();
+    if (!usuarioDoc.exists) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    await auth.updateUser(id, { password: novaSenha });
+
+    const { enviarEmailResetSenha } = require('../services/email');
+    await enviarEmailResetSenha(usuarioDoc.data().email, null, false);
+
+    await registrarLog(req.usuario.uid, 'senha_resetada', { usuario_id: id });
+
+    res.status(200).json({
+      success: true,
+      mensagem: 'Senha resetada com sucesso! O usuário foi notificado por email.'
+    });
+
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 

@@ -25,7 +25,6 @@ async function getEmailConfig() {
     
     if (!configDoc.exists) {
       console.error('❌ Configuração de email não encontrada no Firestore!');
-      // Fallback para variáveis de ambiente (desenvolvimento)
       return {
         host: 'smtp.gmail.com',
         port: 587,
@@ -45,7 +44,6 @@ async function getEmailConfig() {
     
   } catch (error) {
     console.error('❌ Erro ao buscar configuração de email:', error);
-    // Fallback para variáveis de ambiente
     return {
       host: 'smtp.gmail.com',
       port: 587,
@@ -64,13 +62,11 @@ async function getEmailConfig() {
 async function getTransporter() {
   const config = await getEmailConfig();
   
-  // Se não estiver ativo, não envia emails
   if (config.ativo === false) {
     console.warn('⚠️ Envio de emails está DESATIVADO nas configurações');
     return null;
   }
   
-  // Recria o transporter se a configuração mudou
   if (!transporter) {
     transporter = nodemailer.createTransport({
       host: config.host,
@@ -185,7 +181,6 @@ const enviarCredenciaisAcesso = async (email, nome, senha, perfil) => {
     const perfilFormatado = perfil === 'super_admin' ? 'Super Administrador' : 
                             perfil === 'coordenador' ? 'Coordenador' : 'Aluno';
     
-    // Busca a URL do frontend das configurações do sistema
     let frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
     
     try {
@@ -246,9 +241,72 @@ const enviarCredenciaisAcesso = async (email, nome, senha, perfil) => {
   }
 };
 
+/**
+ * Envia email de reset de senha
+ * isLink=true: envia link de recuperação (forgot-password)
+ * isLink=false: notifica que admin resetou a senha
+ */
+const enviarEmailResetSenha = async (email, linkOuNull, isLink = false) => {
+  try {
+    const transporter = await getTransporter();
+    
+    if (!transporter) {
+      console.warn('⚠️ Email não enviado: transporter indisponível');
+      return;
+    }
+    
+    const config = await getEmailConfig();
+
+    const html = isLink ? `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #2d3748;">Recuperação de Senha - SGC SENAC</h2>
+        <p>Recebemos uma solicitação para redefinir sua senha.</p>
+        <p>Clique no botão abaixo para criar uma nova senha:</p>
+        <p>
+          <a href="${linkOuNull}" 
+             style="background-color: #3182ce; color: white; padding: 12px 24px; 
+                    text-decoration: none; border-radius: 6px; display: inline-block;">
+            Redefinir Senha
+          </a>
+        </p>
+        <p style="color: #718096; font-size: 12px;">
+          Se você não solicitou a recuperação, ignore este email.
+        </p>
+        <hr style="border: 1px solid #e2e8f0; margin: 20px 0;">
+        <p style="color: #718096; font-size: 14px;">
+          Atenciosamente,<br><strong>Equipe SENAC</strong>
+        </p>
+      </div>
+    ` : `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #2d3748;">Sua senha foi redefinida - SGC SENAC</h2>
+        <p>Olá! Sua senha foi redefinida pelo administrador do sistema.</p>
+        <p>Acesse o sistema e troque sua senha no próximo login.</p>
+        <hr style="border: 1px solid #e2e8f0; margin: 20px 0;">
+        <p style="color: #718096; font-size: 14px;">
+          Atenciosamente,<br><strong>Equipe SENAC</strong>
+        </p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: config.from,
+      to: email,
+      subject: isLink ? 'Recuperação de senha - SGC SENAC' : 'Sua senha foi redefinida - SGC SENAC',
+      html,
+    });
+
+    console.log(`✅ Email de reset enviado para: ${email}`);
+
+  } catch (error) {
+    console.error('❌ Erro ao enviar email de reset:', error);
+  }
+};
+
 module.exports = { 
   enviarEmailCoordenador, 
   enviarEmailAluno,
   enviarCredenciaisAcesso,
-  clearEmailConfigCache  // Exporta para poder limpar cache quando necessário
+  enviarEmailResetSenha,
+  clearEmailConfigCache
 };

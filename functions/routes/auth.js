@@ -5,6 +5,7 @@ const fetch = require('node-fetch');
 
 const db = admin.firestore();
 
+// POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
     const { email, senha } = req.body;
@@ -46,6 +47,37 @@ router.post('/login', async (req, res) => {
         perfil: usuario.perfil,
         curso_id: usuario.curso_id,
       },
+    });
+
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/auth/forgot-password
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email é obrigatório' });
+    }
+
+    const snapshot = await db.collection('usuarios')
+      .where('email', '==', email)
+      .get();
+
+    if (snapshot.empty) {
+      return res.status(404).json({ error: 'Email não encontrado no sistema' });
+    }
+
+    const { enviarEmailResetSenha } = require('../services/email');
+    const link = await admin.auth().generatePasswordResetLink(email);
+    await enviarEmailResetSenha(email, link, true);
+
+    res.status(200).json({
+      success: true,
+      mensagem: 'Email de recuperação enviado com sucesso!'
     });
 
   } catch (error) {
