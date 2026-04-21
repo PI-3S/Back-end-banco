@@ -9,22 +9,19 @@ const db = admin.firestore();
 
 // Função auxiliar para buscar dados complementares de submissões antigas
 async function enrichSubmissoes(submissoes) {
-  // Identifica submissões que precisam de dados complementares
   const needsEnrichment = submissoes.filter(s =>
     s.carga_horaria_solicitada === undefined || s.tipo === undefined
   );
 
   if (needsEnrichment.length === 0) {
-    return submissoes; // Todas já têm os dados
+    return submissoes;
   }
 
-  // Busca atividades complementares de uma vez
   const submissaoIds = needsEnrichment.map(s => s.id);
   const atividadesSnap = await db.collection('atividades_complementares')
-    .where('submissao_id', 'in', submissaoIds.slice(0, 10)) // Firestore limita 10 itens em 'in'
+    .where('submissao_id', 'in', submissaoIds.slice(0, 10))
     .get();
 
-  // Se tiver mais de 10, busca em batches
   let allAtividades = [...atividadesSnap.docs];
 
   if (submissaoIds.length > 10) {
@@ -37,14 +34,12 @@ async function enrichSubmissoes(submissoes) {
     }
   }
 
-  // Cria mapa de submissao_id -> dados da atividade
   const atividadesMap = {};
   allAtividades.forEach(doc => {
     const data = doc.data();
     atividadesMap[data.submissao_id] = data;
   });
 
-  // Enriquece as submissões
   return submissoes.map(s => {
     const atividade = atividadesMap[s.id];
     return {
@@ -70,23 +65,67 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
       return res.status(400).json({ error: 'Regra não encontrada' });
     }
 
-    const submissaoDuplicada = await db.collection('submissoes')
+    const regra = regraDoc.data();
+    const limiteHoras = regra.limite_horas || 0;
+
+    // Bloqueia apenas se tiver submissão PENDENTE (aguardando avaliação)
+    const submissaoPendente = await db.collection('submissoes')
       .where('aluno_id', '==', req.usuario.uid)
       .where('regra_id', '==', regra_id)
-      .where('status', 'in', ['pendente', 'aprovado'])
+      .where('status', '==', 'pendente')
       .get();
 
-    if (!submissaoDuplicada.empty) {
-      return res.status(400).json({ error: 'Você já possui uma submissão pendente ou aprovada para essa regra' });
+    if (!submissaoPendente.empty) {
+      return res.status(400).json({ 
+        error: 'Você já possui uma submissão pendente para essa regra. Aguarde a avaliação antes de enviar outra.' 
+      });
     }
 
-    const regra = regraDoc.data();
+    // Calcula horas já aprovadas para essa regra
+    const submissoesAprovadas = await db.collection('submissoes')
+      .where('aluno_id', '==', req.usuario.uid)
+      .where('regra_id', '==', regra_id)
+      .where('status', '==', 'aprovado')
+      .get();
+
+    // Busca as horas de cada submissão aprovada via atividades_complementares
+    let horasJaAprovadas = 0;
+    for (const submDoc of submissoesAprovadas.docs) {
+      const submData = submDoc.data();
+      // Tenta pegar horas direto da submissão primeiro
+      if (submData.carga_horaria_solicitada) {
+        horasJaAprovadas += submData.carga_horaria_solicitada;
+      } else {
+        // Fallback: busca na collection de atividades_complementares
+        const atividadeSnap = await db.collection('atividades_complementares')
+          .where('submissao_id', '==', submDoc.id)
+          .limit(1)
+          .get();
+        if (!atividadeSnap.empty) {
+          horasJaAprovadas += atividadeSnap.docs[0].data().carga_horaria_solicitada || 0;
+        }
+      }
+    }
+
+    // Verifica se ainda tem horas disponíveis no limite da regra
+    const horasDisponiveis = limiteHoras - horasJaAprovadas;
+
+    if (limiteHoras > 0 && horasDisponiveis <= 0) {
+      return res.status(400).json({ 
+        error: `Você já atingiu o limite de ${limiteHoras}h para essa categoria. Horas aprovadas: ${horasJaAprovadas}h.` 
+      });
+    }
+
+    // Avisa se a submissão ultrapassaria o limite disponível (mas não bloqueia)
+    if (limiteHoras > 0 && carga_horaria_solicitada > horasDisponiveis) {
+      // Permite enviar mas as horas excedentes não serão contabilizadas
+      console.warn(`Aluno ${req.usuario.uid} submeteu ${carga_horaria_solicitada}h mas só tem ${horasDisponiveis}h disponíveis na regra ${regra_id}`);
+    }
 
     const coordSnap = await db.collection('coordenadores_cursos')
       .where('curso_id', '==', regra.curso_id)
       .get();
 
-    // Cria a submissão com todos os dados
     const submissaoRef = await db.collection('submissoes').add({
       aluno_id: req.usuario.uid,
       coordenador_id: null,
@@ -98,7 +137,6 @@ router.post('/', verificarToken, verificarPerfil('aluno'), async (req, res) => {
       data_envio: new Date().toISOString(),
     });
 
-    // Mantém também na collection de atividades_complementares para retrocompatibilidade
     await db.collection('atividades_complementares').add({
       submissao_id: submissaoRef.id,
       tipo,
@@ -165,12 +203,10 @@ router.get('/', verificarToken, async (req, res) => {
         .filter(s => regraIds.includes(s.regra_id));
 
     } else {
-      // super_admin busca todas
       const snapshot = await db.collection('submissoes').get();
       submissoes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     }
 
-    // Enriquece submissões antigas com dados de atividades_complementares
     submissoes = await enrichSubmissoes(submissoes);
 
     res.status(200).json({ success: true, submissoes });
@@ -193,7 +229,6 @@ router.get('/:id', verificarToken, async (req, res) => {
 
     let submissao = { id: doc.id, ...doc.data() };
 
-    // Enriquece se necessário
     if (submissao.carga_horaria_solicitada === undefined || submissao.tipo === undefined) {
       const enriched = await enrichSubmissoes([submissao]);
       submissao = enriched[0];
@@ -224,7 +259,6 @@ router.patch('/:id', verificarToken, verificarPerfil('coordenador', 'super_admin
       observacao: observacao || null,
     };
 
-    // Se aprovar e enviar horas_aprovadas, salva também
     if (status === 'aprovado' && horas_aprovadas) {
       updateData.horas_aprovadas = horas_aprovadas;
     }
@@ -267,7 +301,6 @@ router.delete('/:id', verificarToken, async (req, res) => {
 
     const submissao = submissaoDoc.data();
 
-    // Aluno só pode deletar submissões pendentes ou em correção
     if (req.usuario.perfil === 'aluno') {
       if (submissao.aluno_id !== req.usuario.uid) {
         return res.status(403).json({ error: 'Você não tem permissão para deletar esta submissão' });
@@ -277,7 +310,6 @@ router.delete('/:id', verificarToken, async (req, res) => {
       }
     }
 
-    // Deleta atividades_complementares relacionadas
     const atividadesSnap = await db.collection('atividades_complementares')
       .where('submissao_id', '==', id)
       .get();
