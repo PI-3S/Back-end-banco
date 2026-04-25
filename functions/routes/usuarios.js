@@ -57,6 +57,48 @@ router.post('/', verificarToken, verificarPerfil('super_admin', 'coordenador'), 
       throw firestoreError;
     }
 
+    // Passo 2.5: Criar vínculo em alunos_cursos (se perfil for aluno)
+    let vinculoCriado = false;
+    if (perfil === 'aluno' && curso_id) {
+      try {
+        await db.collection('alunos_cursos').add({
+          usuario_id: userRecord.uid,
+          curso_id: curso_id,
+          created_at: new Date().toISOString(),
+        });
+        vinculoCriado = true;
+      } catch (vinculoError) {
+        // Rollback em cadeia: undo vínculo → Firestore → Auth
+        try {
+          // Busca e deleta o vínculo criado (se houver)
+          const vinculosSnapshot = await db.collection('alunos_cursos')
+            .where('usuario_id', '==', userRecord.uid)
+            .where('curso_id', '==', curso_id)
+            .get();
+          const batch = db.batch();
+          vinculosSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+          await batch.commit();
+        } catch (undoVinculoError) {
+          console.error('❌ Falha ao desfazer vínculo:', undoVinculoError);
+        }
+        // Rollback: deletar documento do Firestore
+        try {
+          await db.collection('usuarios').doc(userRecord.uid).delete();
+          console.log(`🔄 Rollback: documento ${userRecord.uid} removido do Firestore`);
+        } catch (undoFirestoreError) {
+          console.error('❌ Falha no rollback do Firestore:', undoFirestoreError);
+        }
+        // Rollback: deletar usuário do Auth
+        try {
+          await auth.deleteUser(userRecord.uid);
+          console.log(`🔄 Rollback: usuário ${userRecord.uid} removido do Auth após falha no vínculo`);
+        } catch (undoAuthError) {
+          console.error('❌ Falha no rollback do Auth:', undoAuthError);
+        }
+        throw vinculoError;
+      }
+    }
+
     // Passo 3: Registrar log (não crítico - não faz rollback)
     try {
       await registrarLog(req.usuario.uid, 'usuario_criado', { usuario_id: userRecord.uid, perfil });
