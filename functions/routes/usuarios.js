@@ -10,6 +10,8 @@ const auth = admin.auth();
 
 // POST /api/usuarios
 router.post('/', verificarToken, verificarPerfil('super_admin', 'coordenador'), async (req, res) => {
+  let userRecord = null;
+
   try {
     const { nome, email, senha, perfil, matricula, curso_id } = req.body;
 
@@ -18,25 +20,55 @@ router.post('/', verificarToken, verificarPerfil('super_admin', 'coordenador'), 
       return res.status(400).json({ error: 'Perfil inválido' });
     }
 
-    const userRecord = await auth.createUser({
-      email,
-      password: senha,
-      displayName: nome,
-    });
+    // Passo 1: Criar usuário no Firebase Auth
+    try {
+      userRecord = await auth.createUser({
+        email,
+        password: senha,
+        displayName: nome,
+      });
+    } catch (authError) {
+      if (authError.code === 'auth/email-already-exists' || authError.message.includes('email-already-exists')) {
+        return res.status(400).json({ error: 'Este email já está cadastrado no sistema' });
+      }
+      throw authError;
+    }
 
-    await db.collection('usuarios').doc(userRecord.uid).set({
-      nome,
-      email,
-      perfil,
-      matricula: matricula || null,
-      curso_id: curso_id || null,
-      created_at: new Date().toISOString(),
-    });
+    // Passo 2: Salvar documento no Firestore
+    let firestoreSalvo = false;
+    try {
+      await db.collection('usuarios').doc(userRecord.uid).set({
+        nome,
+        email,
+        perfil,
+        matricula: matricula || null,
+        curso_id: curso_id || null,
+        created_at: new Date().toISOString(),
+      });
+      firestoreSalvo = true;
+    } catch (firestoreError) {
+      // Rollback: deletar usuário do Auth
+      try {
+        await auth.deleteUser(userRecord.uid);
+        console.log(`🔄 Rollback: usuário ${userRecord.uid} removido do Auth após falha no Firestore`);
+      } catch (rollbackError) {
+        console.error('❌ Falha no rollback do Auth:', rollbackError);
+      }
+      throw firestoreError;
+    }
 
-    await registrarLog(req.usuario.uid, 'usuario_criado', { usuario_id: userRecord.uid, perfil });
+    // Passo 3: Registrar log (não crítico - não faz rollback)
+    try {
+      await registrarLog(req.usuario.uid, 'usuario_criado', { usuario_id: userRecord.uid, perfil });
+    } catch (logError) {
+      console.error('❌ Erro ao registrar log:', logError);
+    }
 
+    // Passo 4: Enviar email (não crítico - não faz rollback)
+    let emailEnviado = false;
     try {
       await enviarCredenciaisAcesso(email, nome, senha, perfil);
+      emailEnviado = true;
       console.log(`✅ Email de credenciais enviado para ${email}`);
     } catch (emailError) {
       console.error('❌ Erro ao enviar email:', emailError);
@@ -45,8 +77,10 @@ router.post('/', verificarToken, verificarPerfil('super_admin', 'coordenador'), 
     res.status(201).json({
       success: true,
       uid: userRecord.uid,
-      mensagem: 'Usuário criado com sucesso! As credenciais foram enviadas por email.',
-      emailEnviado: true
+      mensagem: emailEnviado
+        ? 'Usuário criado com sucesso! As credenciais foram enviadas por email.'
+        : 'Usuário criado com sucesso!',
+      emailEnviado
     });
 
   } catch (error) {
