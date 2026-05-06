@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(find . -name *Aluno*.tsx -type f)",
-      "Bash(find . -name *.tsx -type f)"
-    ]
-  }
-}
