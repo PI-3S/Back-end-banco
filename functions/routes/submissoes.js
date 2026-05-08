@@ -252,6 +252,11 @@ router.patch('/:id', verificarToken, verificarPerfil('coordenador', 'super_admin
       return res.status(400).json({ error: 'Status deve ser aprovado, reprovado ou correcao' });
     }
 
+    // Valida observação obrigatória para reprovado e correcao
+    if ((status === 'reprovado' || status === 'correcao') && !observacao) {
+      return res.status(400).json({ error: 'Observação é obrigatória para reprovação e correção' });
+    }
+
     const updateData = {
       status,
       coordenador_id: req.usuario.uid,

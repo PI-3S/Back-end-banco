@@ -52,12 +52,17 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
 
     let texto_extraido = null;
     let processado_ocr = false;
+    let dados_ocr = null;
 
     const mimeTypesSuportados = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
     if (mimeTypesSuportados.includes(req.file.mimetype)) {
-      texto_extraido = await extrairTexto(req.file.buffer, req.file.mimetype, req.file.originalname);
-      processado_ocr = true;
+      const resultadoOcr = await extrairTexto(req.file.buffer, req.file.mimetype, req.file.originalname);
+      if (resultadoOcr) {
+        texto_extraido = resultadoOcr.texto_bruto;
+        dados_ocr = resultadoOcr.campos;
+        processado_ocr = true;
+      }
     }
 
     const docRef = await db.collection('certificados').add({
@@ -66,6 +71,7 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
       url_arquivo: url,
       processado_ocr,
       texto_extraido,
+      dados_ocr,
       created_at: new Date().toISOString(),
     });
 
@@ -74,6 +80,7 @@ router.post('/', verificarToken, verificarPerfil('aluno'), upload.single('arquiv
       id: docRef.id,
       url_arquivo: url,
       texto_extraido,
+      dados_ocr,
       mensagem: 'Certificado enviado com sucesso!',
     });
 
@@ -103,6 +110,56 @@ router.get('/', verificarToken, async (req, res) => {
     res.status(200).json({ success: true, certificados });
 
   } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// DELETE /api/certificados/:id
+router.delete('/:id', verificarToken, verificarPerfil('aluno', 'super_admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const certRef = db.collection('certificados').doc(id);
+    const certDoc = await certRef.get();
+
+    if (!certDoc.exists) {
+      return res.status(404).json({ error: 'Certificado não encontrado' });
+    }
+
+    const certData = certDoc.data();
+
+    // Se for aluno, verifica se o certificado pertence a ele
+    if (req.usuario.perfil === 'aluno') {
+      const submissaoDoc = await db.collection('submissoes').doc(certData.submissao_id).get();
+      if (!submissaoDoc.exists || submissaoDoc.data().aluno_id !== req.usuario.uid) {
+        return res.status(403).json({ error: 'Você não tem permissão para excluir este certificado' });
+      }
+    }
+
+    // Deleta o arquivo do storage
+    try {
+      const url = certData.url_arquivo;
+      if (url) {
+        const fileName = url.split('/').pop();
+        if (fileName) {
+          const file = bucket.file(`certificados/${fileName}`);
+          await file.delete();
+        }
+      }
+    } catch (storageError) {
+      console.error('Erro ao deletar arquivo do storage:', storageError);
+      // Continua mesmo se falhar ao deletar do storage
+    }
+
+    await certRef.delete();
+
+    res.status(200).json({
+      success: true,
+      mensagem: 'Certificado excluído com sucesso!',
+    });
+
+  } catch (error) {
+    console.error('Erro ao excluir certificado:', error);
     res.status(400).json({ error: error.message });
   }
 });
